@@ -33,15 +33,85 @@ def render_interface(transactions: list[dict], results: list[dict]) -> None:
 
     Le jury évalue : clarté, utilité, intuitivité — pas le code en lui-même.
     """
-    st.warning(
-        "Interface à compléter : remplacez ce message par votre propre écran "
-        "dans la fonction `render_interface()`."
-    )
+    import pandas as pd
+    import altair as alt
 
-    # Fallback minimal — à remplacer par votre design
-    st.subheader("Aperçu brut (temporaire)")
-    st.caption(f"{len(transactions)} transactions · {sum(1 for r in results if r.get('is_suspicious'))} alerte(s)")
-    st.dataframe(results, use_container_width=True)
+    st.subheader("📊 Tableau de Bord : Analyse des Fraudes")
+    
+    df_tx = pd.DataFrame(transactions)
+    df_res = pd.DataFrame(results)
+    
+    # Merge both for easy display
+    df = pd.merge(df_tx, df_res, on="transaction_id")
+    
+    total_tx = len(df)
+    suspicious_count = df["is_suspicious"].sum()
+    legit_count = total_tx - suspicious_count
+    
+    col1, col2, col3 = st.columns(3)
+    
+    col1.metric("Transactions Analysées", total_tx)
+    col2.metric("Transactions Suspectes", suspicious_count, delta_color="inverse", delta=f"{suspicious_count}")
+    col3.metric("Taux de Fraude", f"{(suspicious_count/total_tx)*100:.1f}%" if total_tx else "0%")
+    
+    st.divider()
+    
+    if suspicious_count > 0:
+        st.warning(f"⚠️ {suspicious_count} transaction(s) nécessitent votre attention immédiate.")
+    else:
+        st.success("✅ Aucune fraude détectée sur cet échantillon.")
+        
+    col_chart1, col_chart2 = st.columns([2, 1])
+    
+    with col_chart1:
+        st.markdown("### 📈 Répartition des Scores de Fraude")
+        chart = alt.Chart(df).mark_bar().encode(
+            x=alt.X("fraud_score:Q", bin=alt.Bin(maxbins=20), title="Score de Fraude"),
+            y=alt.Y("count()", title="Nombre de transactions"),
+            color=alt.condition(
+                alt.datum.fraud_score >= 0.5,
+                alt.value("red"),
+                alt.value("green")
+            ),
+            tooltip=["count()", "fraud_score"]
+        ).properties(height=300)
+        st.altair_chart(chart, use_container_width=True)
+        
+    with col_chart2:
+        st.markdown("### 🔍 Détails par Verdict")
+        pie = alt.Chart(df).mark_arc(innerRadius=50).encode(
+            theta=alt.Theta(field="is_suspicious", type="nominal", aggregate="count"),
+            color=alt.Color("is_suspicious:N", scale=alt.Scale(domain=[False, True], range=['#28a745', '#dc3545']), legend=alt.Legend(title="Est suspecte")),
+            tooltip=["is_suspicious", "count()"]
+        ).properties(height=300)
+        st.altair_chart(pie, use_container_width=True)
+
+    st.markdown("### 📋 Historique des Transactions")
+    
+    filter_suspicious = st.checkbox("Afficher uniquement les transactions suspectes", value=True)
+    
+    df_display = df.copy()
+    if filter_suspicious:
+        df_display = df_display[df_display["is_suspicious"] == True]
+        
+    st.dataframe(
+        df_display[["transaction_id", "user_id", "amount", "country", "fraud_score", "reason", "is_suspicious"]],
+        use_container_width=True,
+        column_config={
+            "transaction_id": "ID",
+            "user_id": "Client",
+            "amount": st.column_config.NumberColumn("Montant", format="$ %.2f"),
+            "country": "Pays",
+            "fraud_score": st.column_config.ProgressColumn(
+                "Score de risque",
+                format="%.2f",
+                min_value=0,
+                max_value=1,
+            ),
+            "reason": "Explication",
+            "is_suspicious": "Suspect"
+        }
+    )
 
 
 def main() -> None:
