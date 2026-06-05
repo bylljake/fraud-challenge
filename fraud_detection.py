@@ -98,8 +98,12 @@ def detect_fraud(transactions):
             score += 0.8
             reasons.append("Montant manquant")
         elif amount <= 0:
-            score += 1.0
-            reasons.append("Montant négatif ou nul")
+            score += 0.9
+            reasons.append("Montant nul ou négatif")
+            
+        if not country:
+            score += 0.85
+            reasons.append("Champs obligatoires manquants: country")
 
         # NIVEAU 2 & 3: Logique métier et Finesse
         if user and user in user_txs and dt:
@@ -114,10 +118,10 @@ def detect_fraud(transactions):
                         # Niveau 3: si carte présente et même pays, on atténue le score mais il reste suspect si l'écart est si énorme
                         if card_present and country and past_txs[-1].get("country") == country:
                             score += 0.5  # Just at the threshold
-                            reasons.append("Montant inhabituel (atténué par la présence de carte)")
+                            reasons.append("Montant très supérieur à l'habitude du client (atténué par la présence de carte)")
                         else:
-                            score += 0.8
-                            reasons.append("Montant inhabituellement élevé")
+                            score += 0.9
+                            reasons.append("Montant très supérieur à l'habitude du client")
 
                 # 2. Fréquence suspecte (plus de 3 transactions en 15 minutes)
                 recent_txs = [t for t in past_txs if (dt - t['_dt']).total_seconds() <= 15 * 60]
@@ -125,14 +129,15 @@ def detect_fraud(transactions):
                     score += 0.6
                     reasons.append("Fréquence de transactions suspecte")
 
-                # 3. Incohérence géographique (pays différent en moins de 4 heures)
-                if country:
-                    geo_txs = [t for t in past_txs if (dt - t['_dt']).total_seconds() <= 4 * 3600]
-                    for prev_tx in reversed(geo_txs):
-                        if prev_tx.get('country') and prev_tx['country'] != country:
-                            score += 0.8
-                            reasons.append(f"Incohérence géographique ({prev_tx['country']} -> {country})")
-                            break
+            # 3. Incohérence géographique (pays différent en moins de 4 heures)
+            # Cette vérification ne dépend pas d'avoir des transactions passées, on check aussi le futur
+            if country:
+                geo_txs = [t for t in user_txs[user] if t['_dt'] and abs((dt - t['_dt']).total_seconds()) <= 4 * 3600 and t != tx]
+                for other_tx in geo_txs:
+                    if other_tx.get('country') and other_tx['country'] != country:
+                        score += 0.88
+                        reasons.append("Deux pays différents en trop peu de temps")
+                        break
 
         # S'assurer que le score reste entre 0 et 1
         score = min(score, 1.0)
